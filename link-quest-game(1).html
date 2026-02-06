@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🗡️ La Quête de Link</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // Constants
+        const GRAVITY = 0.8;
+        const JUMP_FORCE = -15;
+        const MOVE_SPEED = 5;
+        const PLAYER_SIZE = 40;
+
+        const GameState = {
+            PLAYING: 'PLAYING',
+            GAMEOVER: 'GAMEOVER',
+            WON: 'WON'
+        };
+
+        const LEVELS = [
+            {
+                spawnPoint: { x: 50, y: 400 },
+                platforms: [
+                    { x: 0, y: 500, width: 800, height: 100, color: '#8B4513' },
+                    { x: 200, y: 400, width: 150, height: 20, color: '#A0522D' },
+                    { x: 450, y: 300, width: 150, height: 20, color: '#A0522D' },
+                    { x: 650, y: 200, width: 150, height: 20, color: '#A0522D' },
+                ],
+                items: [
+                    { x: 230, y: 360, width: 30, height: 30, type: 'pizza', collected: false },
+                    { x: 480, y: 260, width: 30, height: 30, type: 'pizza', collected: false },
+                    { x: 680, y: 160, width: 30, height: 30, type: 'pizza', collected: false },
+                ],
+                enemies: [
+                    { x: 200, y: 360, width: 40, height: 40, velocityX: 2, startX: 200, endX: 310, isDead: false },
+                    { x: 450, y: 260, width: 40, height: 40, velocityX: 2, startX: 450, endX: 560, isDead: false },
+                ]
+            },
+            {
+                spawnPoint: { x: 50, y: 400 },
+                platforms: [
+                    { x: 0, y: 500, width: 800, height: 100, color: '#8B4513' },
+                    { x: 150, y: 420, width: 100, height: 20, color: '#A0522D' },
+                    { x: 300, y: 350, width: 100, height: 20, color: '#A0522D' },
+                    { x: 450, y: 280, width: 100, height: 20, color: '#A0522D' },
+                    { x: 600, y: 350, width: 100, height: 20, color: '#A0522D' },
+                ],
+                items: [
+                    { x: 170, y: 380, width: 30, height: 30, type: 'pizza', collected: false },
+                    { x: 320, y: 310, width: 30, height: 30, type: 'pizza', collected: false },
+                    { x: 470, y: 240, width: 30, height: 30, type: 'pizza', collected: false },
+                    { x: 620, y: 310, width: 30, height: 30, type: 'pizza', collected: false },
+                ],
+                enemies: [
+                    { x: 150, y: 380, width: 40, height: 40, velocityX: 1.5, startX: 150, endX: 210, isDead: false },
+                    { x: 300, y: 310, width: 40, height: 40, velocityX: 1.5, startX: 300, endX: 360, isDead: false },
+                    { x: 600, y: 310, width: 40, height: 40, velocityX: 1.5, startX: 600, endX: 660, isDead: false },
+                ]
+            },
+            {
+                spawnPoint: { x: 50, y: 400 },
+                platforms: [
+                    { x: 0, y: 500, width: 800, height: 100, color: '#8B4513' },
+                    { x: 100, y: 430, width: 80, height: 20, color: '#A0522D' },
+                    { x: 220, y: 370, width: 80, height: 20, color: '#A0522D' },
+                    { x: 340, y: 310, width: 80, height: 20, color: '#A0522D' },
+                    { x: 460, y: 250, width: 80, height: 20, color: '#A0522D' },
+                    { x: 580, y: 190, width: 80, height: 20, color: '#A0522D' },
+                    { x: 700, y: 130, width: 100, height: 20, color: '#A0522D' },
+                ],
+                items: [
+                    { x: 730, y: 80, width: 40, height: 40, type: 'heart', collected: false },
+                ],
+                enemies: [
+                    { x: 100, y: 390, width: 40, height: 40, velocityX: 2, startX: 100, endX: 140, isDead: false },
+                    { x: 220, y: 330, width: 40, height: 40, velocityX: 2, startX: 220, endX: 260, isDead: false },
+                    { x: 340, y: 270, width: 40, height: 40, velocityX: 2, startX: 340, endX: 380, isDead: false },
+                    { x: 460, y: 210, width: 40, height: 40, velocityX: 2, startX: 460, endX: 500, isDead: false },
+                    { x: 580, y: 150, width: 40, height: 40, velocityX: 2, startX: 580, endX: 620, isDead: false },
+                ]
+            }
+        ];
+
+        // Game Component
+        const Game = ({ onWin }) => {
+            const canvasRef = useRef(null);
+            const [levelIndex, setLevelIndex] = useState(0);
+            const [gameState, setGameState] = useState(GameState.PLAYING);
+            
+            const currentLevel = LEVELS[levelIndex];
+
+            const [player, setPlayer] = useState({
+                x: currentLevel.spawnPoint.x,
+                y: currentLevel.spawnPoint.y,
+                width: PLAYER_SIZE,
+                height: PLAYER_SIZE,
+                color: '#34a853',
+                velocityX: 0,
+                velocityY: 0,
+                isJumping: false,
+                score: 0,
+                lives: 3,
+                isAttacking: false,
+                attackTimer: 0,
+                invincibilityTimer: 0,
+                direction: 1
+            });
+
+            const [items, setItems] = useState(currentLevel.items);
+            const [enemies, setEnemies] = useState(currentLevel.enemies);
+            const [controls, setControls] = useState({ left: false, right: false, up: false });
+            const requestRef = useRef(null);
+
+            useEffect(() => {
+                setPlayer(prev => ({
+                    ...prev,
+                    x: LEVELS[levelIndex].spawnPoint.x,
+                    y: LEVELS[levelIndex].spawnPoint.y,
+                    velocityY: 0,
+                    score: 0,
+                    isAttacking: false,
+                    attackTimer: 0,
+                    invincibilityTimer: 0
+                }));
+                setItems(LEVELS[levelIndex].items.map(item => ({ ...item, collected: false })));
+                setEnemies(LEVELS[levelIndex].enemies.map(e => ({ ...e, isDead: false })));
+                setGameState(GameState.PLAYING);
+            }, [levelIndex]);
+
+            const resetGame = () => {
+                setLevelIndex(0);
+                setGameState(GameState.PLAYING);
+                setPlayer({
+                    x: LEVELS[0].spawnPoint.x,
+                    y: LEVELS[0].spawnPoint.y,
+                    width: PLAYER_SIZE,
+                    height: PLAYER_SIZE,
+                    color: '#34a853',
+                    velocityX: 0,
+                    velocityY: 0,
+                    isJumping: false,
+                    score: 0,
+                    lives: 3,
+                    isAttacking: false,
+                    attackTimer: 0,
+                    invincibilityTimer: 0,
+                    direction: 1
+                });
+            };
+
+            const handleAttack = () => {
+                if (player.isAttacking) return;
+                setPlayer(p => ({ ...p, isAttacking: true, attackTimer: 15 }));
+            };
+
+            // Keyboard controls
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (e.key === 'ArrowLeft') setControls(c => ({ ...c, left: true }));
+                    if (e.key === 'ArrowRight') setControls(c => ({ ...c, right: true }));
+                    if (e.key === 'ArrowUp' || e.key === ' ') setControls(c => ({ ...c, up: true }));
+                    if (e.key === 'a' || e.key === 'A') handleAttack();
+                };
+
+                const handleKeyUp = (e) => {
+                    if (e.key === 'ArrowLeft') setControls(c => ({ ...c, left: false }));
+                    if (e.key === 'ArrowRight') setControls(c => ({ ...c, right: false }));
+                    if (e.key === 'ArrowUp' || e.key === ' ') setControls(c => ({ ...c, up: false }));
+                };
+
+                window.addEventListener('keydown', handleKeyDown);
+                window.addEventListener('keyup', handleKeyUp);
+
+                return () => {
+                    window.removeEventListener('keydown', handleKeyDown);
+                    window.removeEventListener('keyup', handleKeyUp);
+                };
+            }, [player.isAttacking]);
+
+            const update = useCallback(() => {
+                if (gameState !== GameState.PLAYING) return;
+
+                setEnemies(prev => prev.map(e => {
+                    if (e.isDead) return e;
+                    let newX = e.x + e.velocityX;
+                    if (newX <= e.startX || newX >= e.endX) {
+                        return { ...e, velocityX: -e.velocityX, x: e.x - e.velocityX };
+                    }
+                    return { ...e, x: newX };
+                }));
+
+                setPlayer(prev => {
+                    let moveX = (controls.left ? -MOVE_SPEED : 0) + (controls.right ? MOVE_SPEED : 0);
+                    let newX = prev.x + moveX;
+                    let newY = prev.y + prev.velocityY;
+                    let newVelocityY = prev.velocityY + GRAVITY;
+                    let newIsJumping = prev.isJumping;
+                    let newLives = prev.lives;
+                    let newAttackTimer = Math.max(0, prev.attackTimer - 1);
+                    let newIsAttacking = newAttackTimer > 0;
+                    let newInvincibility = Math.max(0, prev.invincibilityTimer - 1);
+                    let newDirection = prev.direction;
+
+                    if (controls.left) newDirection = -1;
+                    else if (controls.right) newDirection = 1;
+
+                    if (newY > 600) {
+                        newLives -= 1;
+                        if (newLives <= 0) {
+                            setGameState(GameState.GAMEOVER);
+                            return { ...prev, lives: 0 };
+                        } else {
+                            newX = LEVELS[levelIndex].spawnPoint.x;
+                            newY = LEVELS[levelIndex].spawnPoint.y;
+                            newVelocityY = 0;
+                            newIsJumping = false;
+                            newInvincibility = 60;
+                        }
+                    }
+
+                    if (newX < 0) newX = 0;
+                    if (newX > 800 - prev.width) newX = 800 - prev.width;
+
+                    let onPlatform = false;
+                    for (const plat of LEVELS[levelIndex].platforms) {
+                        if (
+                            newX < plat.x + plat.width &&
+                            newX + prev.width > plat.x &&
+                            prev.y + prev.height <= plat.y &&
+                            newY + prev.height >= plat.y
+                        ) {
+                            newY = plat.y - prev.height;
+                            newVelocityY = 0;
+                            newIsJumping = false;
+                            onPlatform = true;
+                        }
+                    }
+
+                    if (controls.up && !newIsJumping) {
+                        newVelocityY = JUMP_FORCE;
+                        newIsJumping = true;
+                    }
+
+                    return {
+                        ...prev,
+                        x: newX,
+                        y: newY,
+                        velocityY: newVelocityY,
+                        isJumping: !onPlatform && newIsJumping,
+                        lives: newLives,
+                        isAttacking: newIsAttacking,
+                        attackTimer: newAttackTimer,
+                        invincibilityTimer: newInvincibility,
+                        direction: newDirection
+                    };
+                });
+
+                if (player.isAttacking) {
+                    setEnemies(prev => prev.map(e => {
+                        if (e.isDead) return e;
+                        const swordBox = {
+                            x: player.direction === -1 ? player.x - 30 : player.x + player.width,
+                            y: player.y,
+                            width: 30,
+                            height: player.height
+                        };
+                        if (swordBox.x < e.x + e.width && swordBox.x + swordBox.width > e.x &&
+                            swordBox.y < e.y + e.height && swordBox.y + swordBox.height > e.y) {
+                            return { ...e, isDead: true };
+                        }
+                        return e;
+                    }));
+                }
+
+                if (player.invincibilityTimer === 0) {
+                    enemies.forEach(e => {
+                        if (!e.isDead &&
+                            player.x < e.x + e.width && player.x + player.width > e.x &&
+                            player.y < e.y + e.height && player.y + player.height > e.y) {
+                            setPlayer(p => ({ ...p, lives: Math.max(0, p.lives - 1), invincibilityTimer: 60 }));
+                            if (player.lives <= 1) setGameState(GameState.GAMEOVER);
+                        }
+                    });
+                }
+
+                setItems(prevItems => {
+                    const nextItems = prevItems.map(p => {
+                        if (!p.collected && 
+                            player.x < p.x + p.width && player.x + player.width > p.x &&
+                            player.y < p.y + p.height && player.y + player.height > p.y) {
+                                if (p.type === 'heart') onWin();
+                                return { ...p, collected: true };
+                            }
+                        return p;
+                    });
+                    
+                    const pizzasNeeded = LEVELS[levelIndex].items.filter(i => i.type === 'pizza').length;
+                    const currentPizzas = nextItems.filter(i => i.type === 'pizza' && i.collected).length;
+                    
+                    if (pizzasNeeded > 0 && currentPizzas === pizzasNeeded && levelIndex < LEVELS.length - 1) {
+                        setLevelIndex(prev => prev + 1);
+                    }
+
+                    if (currentPizzas !== player.score) {
+                        setPlayer(p => ({ ...p, score: currentPizzas }));
+                    }
+                    return nextItems;
+                });
+
+                requestRef.current = requestAnimationFrame(update);
+            }, [controls, player, gameState, levelIndex, enemies, onWin]);
+
+            useEffect(() => {
+                requestRef.current = requestAnimationFrame(update);
+                return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
+            }, [update]);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                LEVELS[levelIndex].platforms.forEach(plat => {
+                    ctx.fillStyle = plat.color;
+                    ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+                });
+
+                items.forEach(p => {
+                    if (!p.collected) {
+                        if (p.type === 'pizza') {
+                            ctx.fillStyle = '#ff9800';
+                            ctx.beginPath();
+                            ctx.moveTo(p.x + p.width / 2, p.y);
+                            ctx.lineTo(p.x, p.y + p.height);
+                            ctx.lineTo(p.x + p.width, p.y + p.height);
+                            ctx.fill();
+                            ctx.fillStyle = '#d32f2f';
+                            ctx.fillRect(p.x + 10, p.y + 15, 4, 4);
+                        } else if (p.type === 'heart') {
+                            ctx.font = '40px serif';
+                            ctx.fillText('❤️', p.x, p.y + 40);
+                        }
+                    }
+                });
+
+                enemies.forEach(e => {
+                    if (!e.isDead) {
+                        ctx.fillStyle = '#e64a19';
+                        ctx.fillRect(e.x, e.y + 10, e.width, e.height - 10);
+                        ctx.fillStyle = '#ff7043';
+                        ctx.fillRect(e.x + 5, e.y, e.width - 10, 15);
+                        ctx.beginPath();
+                        ctx.moveTo(e.x, e.y);
+                        ctx.lineTo(e.x + 8, e.y - 10);
+                        ctx.lineTo(e.x + 10, e.y);
+                        ctx.fill();
+                        ctx.beginPath();
+                        ctx.moveTo(e.x + e.width, e.y);
+                        ctx.lineTo(e.x + e.width - 8, e.y - 10);
+                        ctx.lineTo(e.x + e.width - 10, e.y);
+                        ctx.fill();
+                        ctx.strokeStyle = '#795548';
+                        ctx.lineWidth = 3;
+                        const spearSide = e.velocityX > 0 ? e.x + e.width : e.x;
+                        ctx.beginPath();
+                        ctx.moveTo(spearSide, e.y + 20);
+                        ctx.lineTo(spearSide + (e.velocityX > 0 ? 15 : -15), e.y + 20);
+                        ctx.stroke();
+                        ctx.fillStyle = '#9e9e9e';
+                        ctx.beginPath();
+                        ctx.arc(spearSide + (e.velocityX > 0 ? 18 : -18), e.y + 20, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                });
+
+                if (player.invincibilityTimer % 10 < 5) {
+                    const { x, y, width, height } = player;
+                    
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + 10);
+                    ctx.lineTo(x + width / 2, y - 5);
+                    ctx.lineTo(x + width, y + 10);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#FFD54F';
+                    ctx.fillRect(x + 5, y + 10, width - 10, 8);
+
+                    ctx.fillStyle = '#FFE0B2';
+                    ctx.fillRect(x + 8, y + 15, width - 16, 15);
+
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.fillRect(x + 5, y + 30, width - 10, height - 30);
+
+                    ctx.fillStyle = '#795548';
+                    ctx.fillRect(x + 5, y + 38, width - 10, 4);
+
+                    ctx.fillStyle = '#2196F3';
+                    const shieldX = player.direction === 1 ? x - 5 : x + width - 10;
+                    ctx.fillRect(shieldX, y + 25, 15, 20);
+                    ctx.strokeStyle = '#CFD8DC';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(shieldX, y + 25, 15, 20);
+
+                    if (player.isAttacking) {
+                        const swordX = player.direction === 1 ? x + width : x - 35;
+                        ctx.fillStyle = '#E0E0E0';
+                        ctx.fillRect(swordX, y + 20, 35, 8);
+                        ctx.fillStyle = '#1A237E';
+                        ctx.fillRect(player.direction === 1 ? swordX : swordX + 30, y + 15, 5, 18);
+                    }
+                }
+
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 20px Arial';
+                ctx.fillText(`Niveau ${levelIndex + 1} / 3`, 20, 40);
+                ctx.font = '16px Arial';
+                ctx.fillText(`Pizzas collectées : ${player.score}`, 20, 65);
+                for (let i = 0; i < 3; i++) {
+                    ctx.font = '24px serif';
+                    ctx.fillText(i < player.lives ? '❤️' : '🖤', 20 + i * 35, 100);
+                }
+            }, [player, items, levelIndex, enemies]);
+
+            return (
+                <div className="flex flex-col items-center w-full max-w-4xl mx-auto px-4">
+                    <div className="relative border-8 border-yellow-600 bg-green-900 shadow-2xl rounded-2xl overflow-hidden w-full aspect-[4/3]">
+                        <canvas ref={canvasRef} width={800} height={600} className="w-full h-full block object-contain" />
+
+                        {gameState === GameState.GAMEOVER && (
+                            <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-8 z-50 text-center">
+                                <span className="text-9xl mb-8">💀</span>
+                                <h2 className="text-4xl text-white font-bold mb-12">VOUS ÊTES MORT</h2>
+                                <button onClick={resetGame} className="bg-yellow-500 hover:bg-yellow-400 text-black px-12 py-6 rounded-full text-2xl font-black transition-transform active:scale-95 shadow-lg">REESSAYER</button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex flex-wrap justify-center gap-8 mt-12 w-full max-w-2xl">
+                        <div className="flex gap-4">
+                            <button 
+                                onTouchStart={(e) => { e.preventDefault(); setControls(c => ({...c, left: true}))}}
+                                onTouchEnd={(e) => { e.preventDefault(); setControls(c => ({...c, left: false}))}}
+                                onMouseDown={() => setControls(c => ({...c, left: true}))}
+                                onMouseUp={() => setControls(c => ({...c, left: false}))}
+                                className="w-24 h-24 bg-gray-800 rounded-2xl flex items-center justify-center text-4xl text-white active:bg-gray-700 shadow-xl">◀</button>
+                            <button 
+                                onTouchStart={(e) => { e.preventDefault(); setControls(c => ({...c, up: true}))}}
+                                onTouchEnd={(e) => { e.preventDefault(); setControls(c => ({...c, up: false}))}}
+                                onMouseDown={() => setControls(c => ({...c, up: true}))}
+                                onMouseUp={() => setControls(c => ({...c, up: false}))}
+                                className="w-24 h-24 bg-green-700 rounded-2xl flex items-center justify-center text-xl font-bold text-white active:bg-green-600 shadow-xl">SAUT</button>
+                            <button 
+                                onTouchStart={(e) => { e.preventDefault(); setControls(c => ({...c, right: true}))}}
+                                onTouchEnd={(e) => { e.preventDefault(); setControls(c => ({...c, right: false}))}}
+                                onMouseDown={() => setControls(c => ({...c, right: true}))}
+                                onMouseUp={() => setControls(c => ({...c, right: false}))}
+                                className="w-24 h-24 bg-gray-800 rounded-2xl flex items-center justify-center text-4xl text-white active:bg-gray-700 shadow-xl">▶</button>
+                        </div>
+                        
+                        <button 
+                            onTouchStart={(e) => { e.preventDefault(); handleAttack(); }}
+                            onClick={handleAttack}
+                            className="w-28 h-28 bg-red-600 rounded-full flex items-center justify-center text-xl font-black text-white active:bg-red-500 shadow-2xl border-4 border-red-400">
+                            ATTAQUE
+                        </button>
+                    </div>
+                    
+                    <div className="mt-8 text-white text-center bg-black/40 p-4 rounded-lg">
+                        <p className="mb-2">🎮 <strong>Contrôles clavier:</strong> Flèches pour bouger, Espace pour sauter, A pour attaquer</p>
+                        <p>🎯 <strong>Objectif:</strong> Collectez toutes les pizzas et trouvez le cœur!</p>
+                    </div>
+                </div>
+            );
+        };
+
+        // Valentine Component
+        const Valentine = () => {
+            const [answered, setAnswered] = useState(false);
+            const [noClickCount, setNoClickCount] = useState(0);
+            const [noButtonPosition, setNoButtonPosition] = useState({ top: '60%', left: '35%' });
+            const [noButtonSize, setNoButtonSize] = useState(1);
+            const [yesButtonSize, setYesButtonSize] = useState(1);
+            const [showHearts, setShowHearts] = useState(false);
+            const [hearts, setHearts] = useState([]);
+
+            const handleYes = () => {
+                setAnswered(true);
+                setShowHearts(true);
+                
+                // Générer plein de cœurs
+                const newHearts = [];
+                for (let i = 0; i < 50; i++) {
+                    newHearts.push({
+                        id: i,
+                        left: Math.random() * 100,
+                        top: Math.random() * 100,
+                        size: Math.random() * 40 + 20,
+                        delay: Math.random() * 2,
+                        duration: Math.random() * 3 + 2
+                    });
+                }
+                setHearts(newHearts);
+            };
+
+            const handleNo = () => {
+                const newCount = noClickCount + 1;
+                setNoClickCount(newCount);
+
+                if (newCount < 5) {
+                    // Déplacer le bouton à une position aléatoire
+                    const newTop = Math.random() * 70 + 10; // 10-80%
+                    const newLeft = Math.random() * 70 + 10; // 10-80%
+                    setNoButtonPosition({ top: `${newTop}%`, left: `${newLeft}%` });
+                } else {
+                    // Après 5 clicks, réduire "non" et agrandir "oui"
+                    setNoButtonSize(prev => Math.max(0.1, prev - 0.15));
+                    setYesButtonSize(prev => prev + 0.2);
+                    
+                    if (newCount >= 10) {
+                        // Faire disparaître le bouton "non" complètement
+                        setNoButtonSize(0);
+                    }
+                }
+            };
+
+            if (showHearts) {
+                return (
+                    <div className="fixed inset-0 bg-pink-500 flex items-center justify-center overflow-hidden">
+                        {hearts.map(heart => (
+                            <div
+                                key={heart.id}
+                                style={{
+                                    position: 'absolute',
+                                    left: `${heart.left}%`,
+                                    top: `${heart.top}%`,
+                                    fontSize: `${heart.size}px`,
+                                    animation: `float ${heart.duration}s ease-in-out infinite`,
+                                    animationDelay: `${heart.delay}s`,
+                                    opacity: 0.8
+                                }}
+                            >
+                                ❤️
+                            </div>
+                        ))}
+                        <div className="z-10 bg-white/95 backdrop-blur-lg rounded-3xl p-16 text-center shadow-2xl max-w-2xl">
+                            <h1 className="text-7xl font-black text-pink-600 mb-8 animate-pulse">
+                                Gros BIZOUX BAVEUX! 💋
+                            </h1>
+                            <p className="text-3xl text-pink-500 mb-8">😘💕✨</p>
+                        </div>
+                        <style>{`
+                            @keyframes float {
+                                0%, 100% { transform: translateY(0px) rotate(0deg); }
+                                50% { transform: translateY(-20px) rotate(10deg); }
+                            }
+                        `}</style>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="fixed inset-0 bg-gradient-to-br from-pink-300 via-red-200 to-pink-400 flex items-center justify-center">
+                    <div className="relative">
+                        {/* Cœur avec animation */}
+                        <div className="relative animate-bounce" style={{ animationDuration: '2s' }}>
+                            <svg width="400" height="400" viewBox="0 0 100 100" className="filter drop-shadow-2xl">
+                                <path
+                                    d="M50,90 C50,90 10,65 10,40 C10,25 20,15 30,15 C40,15 50,25 50,25 C50,25 60,15 70,15 C80,15 90,25 90,40 C90,65 50,90 50,90 Z"
+                                    fill="#ff1744"
+                                    stroke="#c41c3b"
+                                    strokeWidth="2"
+                                />
+                            </svg>
+                            
+                            {/* Texte dans le cœur */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="text-center px-8 -mt-4">
+                                    <p className="text-white font-bold text-2xl leading-tight" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.3)' }}>
+                                        Jaëlle,<br/>
+                                        veux-tu être<br/>
+                                        ma Valentine?
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Boutons */}
+                        <div className="relative mt-8 flex justify-center gap-8">
+                            <button
+                                onClick={handleYes}
+                                style={{
+                                    transform: `scale(${yesButtonSize})`,
+                                    transition: 'transform 0.3s ease'
+                                }}
+                                className="bg-green-500 hover:bg-green-400 text-white px-16 py-6 rounded-full text-3xl font-black shadow-2xl border-4 border-green-600 hover:scale-110 transition-all"
+                            >
+                                OUI 💚
+                            </button>
+                            
+                            {noButtonSize > 0 && (
+                                <button
+                                    onClick={handleNo}
+                                    style={{
+                                        position: noClickCount >= 5 ? 'absolute' : 'relative',
+                                        top: noClickCount >= 5 ? noButtonPosition.top : 'auto',
+                                        left: noClickCount >= 5 ? noButtonPosition.left : 'auto',
+                                        transform: `scale(${noButtonSize})`,
+                                        transition: noClickCount < 5 ? 'none' : 'transform 0.3s ease',
+                                        opacity: noButtonSize < 0.3 ? noButtonSize * 3 : 1
+                                    }}
+                                    className="bg-gray-500 hover:bg-gray-400 text-white px-16 py-6 rounded-full text-3xl font-black shadow-2xl border-4 border-gray-600 transition-colors"
+                                >
+                                    NON
+                                </button>
+                            )}
+                        </div>
+                        
+                        {noClickCount > 0 && noClickCount < 5 && (
+                            <p className="text-center mt-4 text-pink-800 font-bold text-xl">
+                                Tu es sûre? 🥺
+                            </p>
+                        )}
+                        
+                        {noClickCount >= 5 && noButtonSize > 0 && (
+                            <p className="text-center mt-4 text-pink-800 font-bold text-xl animate-pulse">
+                                Allez... dis oui! 💕
+                            </p>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // App Component
+        const App = () => {
+            const [hasWon, setHasWon] = useState(false);
+
+            const handleWin = () => {
+                setHasWon(true);
+            };
+
+            const handlePlayAgain = () => {
+                setHasWon(false);
+                window.location.reload();
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-b from-blue-900 via-purple-900 to-indigo-900 py-8">
+                    <div className="container mx-auto">
+                        <h1 className="text-5xl font-black text-center mb-8 text-yellow-400 drop-shadow-lg">
+                            🗡️ LA QUÊTE DE LINK 🛡️
+                        </h1>
+                        
+                        {!hasWon ? (
+                            <Game onWin={handleWin} />
+                        ) : (
+                            <Valentine />
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Render
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
